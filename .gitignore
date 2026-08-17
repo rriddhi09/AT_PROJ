@@ -1,0 +1,15 @@
+node_modules/
+.env
+.env.*
+dist/
+coverage/
+uploads/
+npm-debug.log*
+
+node_modules/
+client/dist/
+server/.env
+.env
+uploads/
+piston-data/
+.piston-cli/

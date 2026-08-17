@@ -1,0 +1,11 @@
+import { useEffect, useRef, useState } from 'react';
+import { Link, useParams } from 'react-router-dom';
+import { api } from '../../lib/api';
+
+export function FileSharePage() {
+  const { meetingCode } = useParams(); const inputRef = useRef(null); const [files, setFiles] = useState([]); const [notice, setNotice] = useState(''); const [uploading, setUploading] = useState(false);
+  const load = async () => { try { const { data } = await api.get(`/meetings/${meetingCode}/files`); setFiles(data.files); } catch (error) { setNotice(error.response?.data?.message ?? 'Could not load shared files.'); } };
+  useEffect(() => { load(); }, [meetingCode]);
+  async function upload(event) { const file = event.target.files?.[0]; if (!file) return; if (file.size > 8 * 1024 * 1024) return setNotice('Choose a file smaller than 8 MB.'); setUploading(true); setNotice(''); try { const contentBase64 = await new Promise((resolve, reject) => { const reader = new FileReader(); reader.onload = () => resolve(String(reader.result).split(',')[1]); reader.onerror = reject; reader.readAsDataURL(file); }); await api.post(`/meetings/${meetingCode}/files`, { name: file.name, mimeType: file.type || 'application/octet-stream', contentBase64 }); await load(); } catch (error) { setNotice(error.response?.data?.message ?? 'Upload failed.'); } finally { setUploading(false); event.target.value = ''; } }
+  return <main className="prejoin"><Link to={`/rooms/${meetingCode}`}>← Back to meeting room</Link><h1>Shared files</h1><p>Upload a file up to 8 MB. Files are stored locally with this project.</p><input ref={inputRef} hidden type="file" onChange={upload} /><button disabled={uploading} onClick={() => inputRef.current?.click()}>{uploading ? 'Uploading...' : 'Upload file'}</button>{notice && <p className="notice">{notice}</p>}<section className="host-requests">{files.length ? files.map(file => <div className="request-row" key={file.id}><span><strong>{file.name}</strong><small>{Math.ceil(file.size / 1024)} KB · uploaded by {file.uploadedBy}</small></span><a href={`http://localhost:5000${file.url}`} target="_blank" rel="noreferrer"><button>Download</button></a></div>) : <p>No shared files yet.</p>}</section></main>;
+}

@@ -1,0 +1,10 @@
+import { Router } from 'express';
+import { createProblem, executeProblem, getProblem, listProblems } from '../controllers/problemController.js';
+import rateLimit from 'express-rate-limit';
+import { authenticate } from '../middleware/authenticate.js';
+export const problemRouter = Router();
+problemRouter.use(authenticate);
+problemRouter.get('/:meetingCode/problems', listProblems);
+problemRouter.post('/:meetingCode/problems', createProblem);
+problemRouter.get('/:meetingCode/problems/:problemId', getProblem);
+problemRouter.post('/:meetingCode/problems/:problemId/execute', rateLimit({ windowMs: 60 * 1000, limit: 12, standardHeaders: true, legacyHeaders: false, message: { message: 'Execution limit reached. Please wait a minute.' } }), executeProblem);

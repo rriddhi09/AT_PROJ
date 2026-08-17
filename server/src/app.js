@@ -1,0 +1,25 @@
+import express from 'express';
+import helmet from 'helmet';
+import cors from 'cors';
+import cookieParser from 'cookie-parser';
+import path from 'node:path';
+import { env } from './config/env.js';
+import { authRouter } from './routes/authRoutes.js';
+import { meetingRouter } from './routes/meetingRoutes.js';
+import { problemRouter } from './routes/problemRoutes.js';
+import { fileRouter } from './routes/fileRoutes.js';
+import { errorHandler, notFound } from './middleware/errorHandler.js';
+
+export const app = express();
+app.set('trust proxy', 1);
+app.use(helmet());
+app.use(cors({ origin: env.clientOrigin, credentials: true }));
+app.use(express.json({ limit: '12mb' }));
+app.use(cookieParser());
+app.get('/api/v1/health', (_, res) => res.json({ status: 'ok' }));
+app.use('/api/v1/auth', authRouter);
+app.use('/api/v1/meetings', meetingRouter);
+app.use('/api/v1/interviews', problemRouter);
+app.use('/api/v1/meetings', fileRouter);
+app.use('/uploads', express.static(path.resolve(process.cwd(), 'uploads')));
+app.use(notFound); app.use(errorHandler);

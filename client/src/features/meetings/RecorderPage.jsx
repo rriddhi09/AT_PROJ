@@ -1,0 +1,9 @@
+import { useRef, useState } from 'react';
+import { Link, useParams } from 'react-router-dom';
+
+export function RecorderPage() {
+  const { meetingCode } = useParams(); const recorderRef = useRef(null); const streamRef = useRef(null); const chunksRef = useRef([]); const [recording, setRecording] = useState(false); const [notice, setNotice] = useState('');
+  async function start() { try { const stream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: true }); streamRef.current = stream; const recorder = new MediaRecorder(stream, { mimeType: MediaRecorder.isTypeSupported('video/webm') ? 'video/webm' : undefined }); recorderRef.current = recorder; chunksRef.current = []; recorder.ondataavailable = event => event.data.size && chunksRef.current.push(event.data); recorder.onstop = () => { const blob = new Blob(chunksRef.current, { type: 'video/webm' }); const url = URL.createObjectURL(blob); const link = document.createElement('a'); link.href = url; link.download = `meeting-${meetingCode}-${Date.now()}.webm`; link.click(); URL.revokeObjectURL(url); streamRef.current?.getTracks().forEach(track => track.stop()); setRecording(false); setNotice('Recording downloaded to this device.'); }; stream.getVideoTracks()[0].onended = () => recorder.state !== 'inactive' && recorder.stop(); recorder.start(1000); setRecording(true); } catch { setNotice('Screen recording was not started. Allow browser screen-sharing permission and try again.'); } }
+  function stop() { recorderRef.current?.state === 'recording' && recorderRef.current.stop(); }
+  return <main className="prejoin"><Link to={`/rooms/${meetingCode}`}>← Back to meeting room</Link><h1>Record interview</h1><p>This free browser recording saves directly to your device; it is not uploaded to a server.</p><button onClick={recording ? stop : start}>{recording ? 'Stop and download recording' : 'Start screen recording'}</button>{notice && <p className="notice">{notice}</p>}</main>;
+}
