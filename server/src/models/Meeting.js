@@ -14,6 +14,11 @@ const meetingSchema = new mongoose.Schema({
     screenShareEnabled: { type: Boolean, default: true }, fileShareEnabled: { type: Boolean, default: true },
     maxParticipants: { type: Number, default: 10, min: 2, max: 100 }
   },
+  technical: {
+    problemVisible: { type: Boolean, default: false },
+    durationSec: { type: Number, min: 60, max: 14400 },
+    candidateStartedAt: Date
+  },
   deletedAt: { type: Date, default: null }
 }, { timestamps: true });
 

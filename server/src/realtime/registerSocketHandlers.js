@@ -26,6 +26,11 @@ export function registerSocketHandlers(io) {
         const member = await MeetingMember.findOne({ meetingId: meeting._id, userId: socket.data.user.id, membershipStatus: 'approved' }).lean();
         if (!member) throw new Error('Meeting approval is required');
         const room = `meeting:${meeting._id}`;
+        const existingSockets = await io.in(room).fetchSockets();
+        for (const existing of existingSockets.filter(peer => peer.data.user?.id === socket.data.user.id)) {
+          existing.emit('room:replaced', { message: 'This account joined the meeting from another tab.' });
+          leaveRoom(existing);
+        }
         const occupants = await io.in(room).fetchSockets();
         const peers = occupants.map(peer => ({ socketId: peer.id, user: peer.data.user }));
         socket.join(room); socket.data.room = room; socket.data.meetingId = meeting._id.toString();
