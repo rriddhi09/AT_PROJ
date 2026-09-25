@@ -6,8 +6,7 @@ const refreshTokenSchema = new mongoose.Schema({
   familyId: { type: String, required: true, index: true },
   device: { userAgent: String, ip: String },
   expiresAt: { type: Date, required: true },
-  revokedAt: { type: Date, default: null },
-  replacedByTokenId: { type: mongoose.Schema.Types.ObjectId, default: null }
+  revokedAt: { type: Date, default: null }
 }, { timestamps: true });
 
 refreshTokenSchema.index({ expiresAt: 1 }, { expireAfterSeconds: 0 });

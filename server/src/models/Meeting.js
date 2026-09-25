@@ -12,10 +12,9 @@ const meetingSchema = new mongoose.Schema({
   status: { type: String, enum: ['SCHEDULED', 'WAITING_TO_START', 'LIVE', 'PAUSED', 'ENDED', 'CANCELLED', 'EXPIRED', 'scheduled', 'live', 'ended'], default: 'WAITING_TO_START', index: true },
   scheduledAt: Date, startedAt: Date, endedAt: Date, hostAbsentSince: Date,
   settings: {
-    recordingEnabled: { type: Boolean, default: false }, chatEnabled: { type: Boolean, default: true },
     chatMode: { type: String, enum: ['CHAT_DISABLED', 'EVERYONE', 'HOST_ONLY', 'PRIVATE_MESSAGES_ALLOWED'], default: 'EVERYONE' },
     reactionsEnabled: { type: Boolean, default: true },
-    screenShareEnabled: { type: Boolean, default: true }, fileShareEnabled: { type: Boolean, default: true },
+    fileShareEnabled: { type: Boolean, default: true },
     screenShareMode: { type: String, enum: ['HOST_ONLY', 'HOST_AND_COHOST', 'ALL_PARTICIPANTS'], default: 'HOST_AND_COHOST' },
     oneScreenShareAtATime: { type: Boolean, default: true },
     allowJoinBeforeHost: { type: Boolean, default: false },

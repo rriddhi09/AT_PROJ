@@ -6,7 +6,6 @@ const userSchema = new mongoose.Schema({
   passwordHash: { type: String, required: true, select: false },
   avatarUrl: { type: String, default: null },
   accountStatus: { type: String, enum: ['active', 'suspended'], default: 'active' },
-  emailVerifiedAt: { type: Date, default: null },
   lastLoginAt: { type: Date, default: null },
   deletedAt: { type: Date, default: null }
 }, { timestamps: true });

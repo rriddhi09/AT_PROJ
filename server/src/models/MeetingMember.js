@@ -4,7 +4,6 @@ const meetingMemberSchema = new mongoose.Schema({
   meetingId: { type: mongoose.Schema.Types.ObjectId, ref: 'Meeting', required: true },
   userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
   role: { type: String, enum: ['host', 'interviewer', 'presenter', 'candidate', 'participant'], default: 'participant' },
-  handRaisedAt: { type: Date, default: null },
   membershipStatus: { type: String, enum: ['invited', 'pending', 'approved', 'rejected', 'removed'], default: 'pending' },
   participantStatus: { type: String, enum: ['INVITED', 'WAITING', 'ADMITTED', 'JOINED', 'RECONNECTING', 'LEFT', 'REJECTED', 'REMOVED', 'BANNED'], default: 'INVITED', index: true },
   canRejoin: { type: Boolean, default: true },
