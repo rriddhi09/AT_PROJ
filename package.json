@@ -8,6 +8,7 @@
     "dev:server": "npm run dev --workspace server",
     "dev:client": "npm run dev --workspace client",
     "build": "npm run build --workspace client",
+    "test:flows": "npm run test:flows --workspace server",
     "start": "npm run start --workspace server"
   },
   "devDependencies": { "concurrently": "^9.1.2" }

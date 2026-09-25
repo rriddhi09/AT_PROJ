@@ -38,10 +38,11 @@ export async function refresh(req, res, next) { try {
   const payload = verifyRefreshToken(token);
   const stored = await RefreshToken.findOne({ tokenHash: hashToken(token), userId: payload.sub, familyId: payload.familyId, revokedAt: null, expiresAt: { $gt: new Date() } });
   if (!stored) return res.status(401).json({ message: 'Refresh token invalid.' });
-  stored.revokedAt = new Date(); await stored.save();
   const user = await User.findOne({ _id: payload.sub, accountStatus: 'active', deletedAt: null });
   if (!user) return res.status(401).json({ message: 'Account unavailable.' });
-  res.json(await issueSession(res, req, user, payload.familyId));
+  // Keep the existing refresh token valid across browser tabs and ordinary page reloads.
+  // Rotation is intentionally reserved for an explicit new login or logout in this simple local app.
+  res.json({ accessToken: signAccessToken(user), user: publicUser(user) });
 } catch (error) { res.clearCookie('refreshToken', refreshCookieOptions()); next(error); } }
 
 export async function logout(req, res, next) { try {

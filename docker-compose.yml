@@ -6,5 +6,17 @@ services:
     ports:
       - "2000:2000"
     volumes:
-      - ./piston-data:/piston
+      # Keep language packages in Docker's Linux filesystem. A Windows bind mount
+      # makes C++ compilation exceed Piston's fixed sandbox timeout.
+      - piston-runtime-packages:/piston/packages
+    tmpfs:
+      - /tmp:exec
+    environment:
+      # C++ linking can temporarily write more than Piston's 10 MB default.
+      # This remains an isolated local Docker sandbox, capped at 50 MB per file.
+      PISTON_MAX_FILE_SIZE: 50000000
     restart: unless-stopped
+
+volumes:
+  piston-runtime-packages:
+    name: unified-interview-piston-runtime-packages

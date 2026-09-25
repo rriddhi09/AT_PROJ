@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { createMeeting, decideJoinRequest, getMeetingByCode, joinPublicMeeting, listJoinRequests, listMyMeetings, requestPrivateAccess, revealProblem, startCoding, updateMeeting } from '../controllers/meetingController.js';
+import { closeMeeting, createMeeting, decideJoinRequest, getMeetingByCode, joinPublicMeeting, listJoinRequests, listMyMeetings, pauseMeeting, requestPrivateAccess, resumeMeeting, revealProblem, rotateMeetingInvite, startCoding, startMeeting, startRecording, stopRecording, updateLiveControls, updateMeeting } from '../controllers/meetingController.js';
 import { authenticate } from '../middleware/authenticate.js';
 
 export const meetingRouter = Router();
@@ -13,3 +13,11 @@ meetingRouter.get('/by-code/:meetingCode/join-requests', listJoinRequests);
 meetingRouter.post('/by-code/:meetingCode/join-requests/:requestId/decision', decideJoinRequest);
 meetingRouter.post('/by-code/:meetingCode/reveal-problem', revealProblem);
 meetingRouter.post('/by-code/:meetingCode/start-coding', startCoding);
+meetingRouter.post('/by-code/:meetingCode/start', startMeeting);
+meetingRouter.post('/by-code/:meetingCode/pause', pauseMeeting);
+meetingRouter.post('/by-code/:meetingCode/resume', resumeMeeting);
+meetingRouter.post('/by-code/:meetingCode/close', closeMeeting);
+meetingRouter.patch('/by-code/:meetingCode/controls', updateLiveControls);
+meetingRouter.post('/by-code/:meetingCode/recording/start', startRecording);
+meetingRouter.post('/by-code/:meetingCode/recording/stop', stopRecording);
+meetingRouter.post('/by-code/:meetingCode/invite/rotate', rotateMeetingInvite);
