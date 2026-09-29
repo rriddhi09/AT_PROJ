@@ -7,5 +7,4 @@ const testCaseSchema = new mongoose.Schema({
   isHidden: { type: Boolean, default: false },
   order: { type: Number, default: 0 }
 }, { timestamps: true });
-testCaseSchema.index({ problemId: 1, isHidden: 1, order: 1 });
 export const TestCase = mongoose.model('TestCase', testCaseSchema);

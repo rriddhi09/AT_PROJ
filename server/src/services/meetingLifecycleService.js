@@ -13,7 +13,7 @@ export async function refreshMeetingLifecycle(meeting) {
   if (['SCHEDULED', 'WAITING_TO_START'].includes(status) && reference && now - new Date(reference).getTime() > expiryMs) status = 'EXPIRED';
   else if (status === 'SCHEDULED' && (!meeting.scheduledAt || new Date(meeting.scheduledAt).getTime() <= now)) status = 'WAITING_TO_START';
   else if (['LIVE', 'PAUSED'].includes(status) && meeting.hostAbsentSince && now - new Date(meeting.hostAbsentSince).getTime() >= env.hostAbsenceGraceSeconds * 1000) { status = 'ENDED'; meeting.endedAt = new Date(); }
-  if (status !== meeting.status) { meeting.status = status; await meeting.save(); if (status === 'ENDED') await MeetingMember.updateMany({ meetingId: meeting._id, participantStatus: { $in: ['JOINED', 'RECONNECTING'] } }, { $set: { participantStatus: 'LEFT', reconnectingAt: null, leftAt: new Date() } }); }
+  if (status !== meeting.status) { meeting.status = status; await meeting.save(); if (status === 'ENDED') await MeetingMember.updateMany({ meetingId: meeting._id, participantStatus: { $in: ['JOINED', 'RECONNECTING'] } }, { $set: { participantStatus: 'LEFT' } }); }
   return meeting;
 }
 

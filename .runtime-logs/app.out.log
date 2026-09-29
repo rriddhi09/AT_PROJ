@@ -1,0 +1,22 @@
+
+> unified-interview-platform@0.1.0 dev
+> concurrently "npm run dev --workspace server" "npm run dev --workspace client"
+
+[1] 
+[1] > @unified-interview/client@0.1.0 dev
+[1] > vite
+[1] 
+[0] 
+[0] > dev
+[0] > node --watch src/server.js
+[0] 
+[1] 4:41:32 pm [vite] (client) Re-optimizing dependencies because lockfile has changed
+[1] 
+[1]   VITE v6.4.3  ready in 1280 ms
+[1] 
+[1]   ➜  Local:   http://localhost:5173/
+[1]   ➜  Network: use --host to expose
+[0] MongoDB connected
+[0] Restarting 'src/server.js'
+[0] MongoDB connected
+[0] API listening on :5000

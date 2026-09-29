@@ -2,14 +2,14 @@ import mongoose from 'mongoose';
 
 const meetingSchema = new mongoose.Schema({
   meetingCode: { type: String, required: true, unique: true, immutable: true },
-  ownerId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true, index: true },
+  ownerId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
   inviteVersion: { type: Number, default: 1, min: 1 },
   title: { type: String, required: true, trim: true, maxlength: 160 },
   description: { type: String, default: '', maxlength: 2000 },
   type: { type: String, enum: ['normal', 'technical_interview'], required: true },
   accessType: { type: String, enum: ['public', 'private'], default: 'private' },
   locked: { type: Boolean, default: false },
-  status: { type: String, enum: ['SCHEDULED', 'WAITING_TO_START', 'LIVE', 'PAUSED', 'ENDED', 'CANCELLED', 'EXPIRED', 'scheduled', 'live', 'ended'], default: 'WAITING_TO_START', index: true },
+  status: { type: String, enum: ['SCHEDULED', 'WAITING_TO_START', 'LIVE', 'PAUSED', 'ENDED', 'CANCELLED', 'EXPIRED', 'scheduled', 'live', 'ended'], default: 'WAITING_TO_START' },
   scheduledAt: Date, startedAt: Date, endedAt: Date, hostAbsentSince: Date,
   settings: {
     chatMode: { type: String, enum: ['CHAT_DISABLED', 'EVERYONE', 'HOST_ONLY', 'PRIVATE_MESSAGES_ALLOWED'], default: 'EVERYONE' },
@@ -28,13 +28,14 @@ const meetingSchema = new mongoose.Schema({
     recordingUrl: { type: String, default: null }
   },
   technical: {
+    ready: { type: Boolean, default: false },
     problemVisible: { type: Boolean, default: false },
+    codingAccess: { type: Boolean, default: false },
+    candidateId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
     durationSec: { type: Number, min: 60, max: 14400 },
     candidateStartedAt: Date
   },
   deletedAt: { type: Date, default: null }
 }, { timestamps: true });
 
-meetingSchema.index({ ownerId: 1, createdAt: -1 });
-meetingSchema.index({ type: 1, status: 1 });
 export const Meeting = mongoose.model('Meeting', meetingSchema);

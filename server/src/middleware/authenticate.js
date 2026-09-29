@@ -6,7 +6,7 @@ export async function authenticate(req, res, next) {
     const header = req.headers.authorization;
     if (!header?.startsWith('Bearer ')) return res.status(401).json({ message: 'Authentication required.' });
     const payload = verifyAccessToken(header.slice(7));
-    const user = await User.findOne({ _id: payload.sub, accountStatus: 'active', deletedAt: null });
+    const user = await User.findOne({ _id: payload.sub, deletedAt: null });
     if (!user) return res.status(401).json({ message: 'Account is unavailable.' });
     req.user = user;
     next();

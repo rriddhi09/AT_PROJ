@@ -7,8 +7,7 @@ import { registerSocketHandlers } from './realtime/registerSocketHandlers.js';
 import { beginStartupHostRecoveryWindow, refreshDueMeetingLifecycles } from './services/meetingLifecycleService.js';
 
 const server = http.createServer(app);
-const localOrigins = [env.clientOrigin, 'http://localhost:5173', 'http://127.0.0.1:5173'];
-export const io = new Server(server, { cors: { origin: localOrigins, credentials: true } });
+export const io = new Server(server, { cors: { origin: true, credentials: true } });
 app.set('io', io);
 registerSocketHandlers(io);
 

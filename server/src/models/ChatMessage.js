@@ -8,7 +8,4 @@ const chatMessageSchema = new mongoose.Schema({
   deletedAt: { type: Date, default: null }
 }, { timestamps: true });
 
-chatMessageSchema.index({ meetingId: 1, createdAt: -1 });
-chatMessageSchema.index({ meetingId: 1, recipientId: 1, createdAt: -1 });
-
 export const ChatMessage = mongoose.model('ChatMessage', chatMessageSchema);

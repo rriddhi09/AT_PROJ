@@ -9,7 +9,7 @@ const template = {
 };
 const blank = { title: '', statement: '', timeLimitSec: 1800, sampleInput: '', sampleOutput: '', hiddenInput: '', hiddenOutput: '' };
 
-export function TechnicalWorkspace({ meetingCode, canManage, socket, problemVisible = false, onProblemRevealed, technical = {} }) {
+export function TechnicalWorkspace({ meetingCode, canManage, socket, candidates = [], currentUserId, problemVisible = false, onStartCoding, technical = {} }) {
   const [problems, setProblems] = useState([]);
   const [selected, setSelected] = useState(null);
   const [problem, setProblem] = useState(null);
@@ -24,7 +24,18 @@ export function TechnicalWorkspace({ meetingCode, canManage, socket, problemVisi
   const [revealing, setRevealing] = useState(false);
   const [startedAt, setStartedAt] = useState(technical.candidateStartedAt);
   const [now, setNow] = useState(Date.now());
+  const [selectedCandidateId, setSelectedCandidateId] = useState('');
+  const [draftReady, setDraftReady] = useState(false);
+  const [liveStatus, setLiveStatus] = useState('Connecting editor…');
+  const [roundReady, setRoundReady] = useState(Boolean(technical.ready));
+  const [codingAccess, setCodingAccess] = useState(Boolean(technical.codingAccess));
+  const [assignedCandidateId, setAssignedCandidateId] = useState(technical.candidateId ? String(technical.candidateId) : '');
   const skipRef = useRef(false);
+  const typingRef = useRef(false);
+
+  const candidateId = canManage ? selectedCandidateId : currentUserId;
+  const isSelectedCandidate = !canManage && assignedCandidateId === currentUserId;
+  const secondsLeft = startedAt && technical.durationSec ? Math.max(0, technical.durationSec - Math.floor((now - new Date(startedAt).getTime()) / 1000)) : null;
 
   const load = async () => {
     try {
@@ -44,28 +55,58 @@ export function TechnicalWorkspace({ meetingCode, canManage, socket, problemVisi
       setProblem(data.problem);
       setTests(data.testCases);
       setLanguage(initialLanguage);
+      setDraftReady(false);
       setCode(template[initialLanguage] ?? '');
       setExecution(null);
     }).catch(error => setNotice(error.response?.data?.message ?? 'Could not load problem.'));
   }, [meetingCode, selected]);
   useEffect(() => {
-    if (!socket || !selected) return undefined;
-    socket.emit('code:join', { meetingCode, problemId: selected, language });
-    const update = ({ problemId, language: incoming, sourceCode }) => {
-      if (problemId === selected && incoming === language) { skipRef.current = true; setCode(sourceCode); }
+    if (!canManage) return;
+    setSelectedCandidateId(current => candidates.some(item => item.id === current) ? current : candidates[0]?.id ?? '');
+  }, [canManage, candidates]);
+  useEffect(() => {
+    if (!socket || !selected || !candidateId) { setDraftReady(false); if (canManage) setLiveStatus('Waiting for a candidate'); return undefined; }
+    setDraftReady(false);
+    setLiveStatus('Loading draft…');
+    socket.emit('code:join', { meetingCode, problemId: selected, language, candidateId }, result => {
+      if (!result?.ok) { setNotice(result?.message ?? 'Could not open the live draft.'); setLiveStatus('Editor unavailable'); return; }
+      skipRef.current = true;
+      setCode(result.found ? result.sourceCode : template[language] ?? '');
+      setDraftReady(true);
+      setLiveStatus(canManage ? `Watching ${result.candidate?.name ?? 'candidate'}` : result.found ? 'Draft recovered' : 'Draft ready');
+    });
+    const update = ({ problemId, language: incoming, candidateId: incomingCandidate, sourceCode }) => {
+      if (problemId === selected && incoming === language && incomingCandidate === candidateId) { skipRef.current = true; setCode(sourceCode); if (canManage) setLiveStatus('Candidate is editing'); }
+    };
+    const typing = ({ candidateId: incomingCandidate, typing: active, user }) => {
+      if (incomingCandidate === candidateId && canManage) setLiveStatus(active ? `${user?.name ?? 'Candidate'} is typing…` : `Watching ${user?.name ?? 'candidate'}`);
+    };
+    const activity = ({ candidateId: incomingCandidate, status, summary }) => {
+      if (incomingCandidate !== candidateId) return;
+      const labels = { RUNNING: 'Running sample tests…', SUBMITTING: 'Submitting solution…', FAILED: 'Execution failed', RUN_COMPLETE: `Run complete · ${summary?.passed ?? 0}/${summary?.total ?? 0} passed`, SUBMITTED: `Submitted · ${summary?.passed ?? 0}/${summary?.total ?? 0} passed` };
+      setLiveStatus(labels[status] ?? status);
     };
     socket.on('code:update', update);
-    return () => socket.off('code:update', update);
-  }, [socket, meetingCode, selected, language]);
+    socket.on('code:typing', typing);
+    socket.on('code:activity', activity);
+    return () => { socket.off('code:update', update); socket.off('code:typing', typing); socket.off('code:activity', activity); };
+  }, [socket, meetingCode, selected, language, candidateId, canManage]);
   useEffect(() => {
-    if (!socket || !selected) return undefined;
+    if (!socket || !selected || !candidateId || !draftReady || canManage || !startedAt || !codingAccess) return undefined;
     if (skipRef.current) { skipRef.current = false; return undefined; }
-    const timeout = setTimeout(() => socket.emit('code:update', { problemId: selected, language, sourceCode: code }), 500);
+    if (!typingRef.current) { typingRef.current = true; socket.emit('code:typing', { problemId: selected, language, typing: true }); }
+    setLiveStatus('Saving draft…');
+    const timeout = setTimeout(() => socket.emit('code:update', { problemId: selected, language, sourceCode: code }, result => {
+      typingRef.current = false;
+      socket.emit('code:typing', { problemId: selected, language, typing: false });
+      setLiveStatus(result?.ok ? 'Draft saved' : result?.message ?? 'Draft not saved');
+    }), 500);
     return () => clearTimeout(timeout);
-  }, [socket, selected, language, code]);
+  }, [socket, selected, language, code, candidateId, draftReady, canManage, startedAt, codingAccess]);
   useEffect(() => { setStartedAt(technical.candidateStartedAt); }, [technical.candidateStartedAt]);
+  useEffect(() => { setRoundReady(Boolean(technical.ready)); setCodingAccess(Boolean(technical.codingAccess)); setAssignedCandidateId(technical.candidateId ? String(technical.candidateId) : ''); }, [technical.ready, technical.codingAccess, technical.candidateId]);
   useEffect(() => { if (!startedAt) return undefined; const tick = setInterval(() => setNow(Date.now()), 1000); return () => clearInterval(tick); }, [startedAt]);
-  useEffect(() => { if (!socket) return undefined; const onStart = ({ startedAt: time }) => setStartedAt(time); socket.on('coding:started', onStart); return () => socket.off('coding:started', onStart); }, [socket]);
+  useEffect(() => { if (!socket) return undefined; const onReady = ({ candidateId: chosen }) => { setRoundReady(true); setAssignedCandidateId(String(chosen)); }; const onStart = ({ candidateId: chosen, startedAt: time }) => { setAssignedCandidateId(String(chosen)); setStartedAt(time); setCodingAccess(true); }; const onLocked = ({ reason }) => { setCodingAccess(false); setNotice(reason); }; const onResumed = () => { setCodingAccess(true); setNotice('Required media restored. Coding is unlocked.'); }; socket.on('coding:ready', onReady); socket.on('coding:started', onStart); socket.on('coding:locked', onLocked); socket.on('coding:resumed', onResumed); return () => { socket.off('coding:ready', onReady); socket.off('coding:started', onStart); socket.off('coding:locked', onLocked); socket.off('coding:resumed', onResumed); }; }, [socket]);
 
   async function create(event) {
     event.preventDefault();
@@ -91,9 +132,11 @@ export function TechnicalWorkspace({ meetingCode, canManage, socket, problemVisi
   async function reveal() {
     setRevealing(true);
     try {
-      await api.post(`/meetings/by-code/${meetingCode}/reveal-problem`);
-      setNotice('Problem revealed to approved candidates.');
-      onProblemRevealed?.();
+      if (!selectedCandidateId) return setNotice('Select the participant who will be the candidate.');
+      await api.post(`/meetings/by-code/${meetingCode}/reveal-problem`, { candidateId: selectedCandidateId });
+      setRoundReady(true);
+      setAssignedCandidateId(selectedCandidateId);
+      setNotice('Coding round opened. The candidate can now complete the media check and start.');
     } catch (error) {
       setNotice(error.response?.data?.message ?? 'Could not reveal problem.');
     } finally {
@@ -115,16 +158,16 @@ export function TechnicalWorkspace({ meetingCode, canManage, socket, problemVisi
   }
   async function startCoding() {
     try {
-      const { data } = await api.post(`/meetings/by-code/${meetingCode}/start-coding`);
+      const data = onStartCoding ? await onStartCoding() : (await api.post(`/meetings/by-code/${meetingCode}/start-coding`)).data;
       setStartedAt(data.startedAt);
+      setCodingAccess(true);
       setNotice('Coding timer started. Good luck!');
     } catch (error) {
-      setNotice(error.response?.data?.message ?? 'Could not start the coding timer.');
+      setNotice(error.response?.data?.message ?? error.message ?? 'Could not start the coding timer.');
     }
   }
 
   const change = key => event => setForm({ ...form, [key]: event.target.value });
-  const secondsLeft = startedAt && technical.durationSec ? Math.max(0, technical.durationSec - Math.floor((now - new Date(startedAt).getTime()) / 1000)) : null;
   const timeLabel = secondsLeft == null ? (problem?.timeLimitSec ? `${Math.ceil(problem.timeLimitSec / 60)} min` : 'Timer not started') : `${String(Math.floor(secondsLeft / 60)).padStart(2, '0')}:${String(secondsLeft % 60).padStart(2, '0')}`;
   const sampleTests = tests.filter(test => !test.isHidden);
 
@@ -135,20 +178,21 @@ export function TechnicalWorkspace({ meetingCode, canManage, socket, problemVisi
         <div><p className="eyebrow">LIVE TECHNICAL INTERVIEW</p><h2>{problem?.title ?? 'Coding workspace'}</h2></div>
       </div>
       <div className="interview-statuses">
-        <span className="sync-chip"><i /> Collaborative editor</span>
+        {canManage && socket && <select className="candidate-view-select" aria-label="Candidate draft" value={selectedCandidateId} onChange={event => setSelectedCandidateId(event.target.value)} disabled={!candidates.length}><option value="">{candidates.length ? 'Select candidate' : 'Waiting for candidate'}</option>{candidates.map(candidate => <option key={candidate.id} value={candidate.id}>{candidate.name}</option>)}</select>}
+        <span className="sync-chip"><i /> {liveStatus}</span>
         <span className={`interview-timer ${secondsLeft === 0 ? 'timer-expired' : ''}`}>⏱ {timeLabel}</span>
-        {!canManage && problemVisible && !startedAt && <button onClick={startCoding}>Start coding</button>}
+        {isSelectedCandidate && roundReady && !startedAt && <button onClick={startCoding}>Start coding</button>}
         {canManage && problems.length === 0 && <button onClick={() => setCreateOpen(true)}>+ Add problem</button>}
-        {canManage && problems.length > 0 && (problemVisible ? <span className="revealed-chip">✓ Revealed</span> : <button onClick={reveal} disabled={revealing}>{revealing ? 'Revealing…' : 'Reveal problem'}</button>)}
+        {canManage && problems.length > 0 && (!socket ? <span className="revealed-chip">✓ Problem ready</span> : startedAt ? <span className="revealed-chip">✓ Coding started</span> : <button onClick={reveal} disabled={revealing || !selectedCandidateId}>{revealing ? 'Saving…' : !selectedCandidateId ? 'Select candidate' : roundReady ? 'Update candidate' : 'Open coding round'}</button>)}
       </div>
     </header>
 
     {notice && <div className="interview-notice"><span>{notice}</span><button aria-label="Dismiss notification" onClick={() => setNotice('')}>×</button></div>}
-
     {problems.length === 0 ? <div className="workspace-empty interview-empty">
       <span className="empty-code-icon">{canManage ? '+' : '⌛'}</span>
       <strong>{canManage ? 'Create the interview challenge' : 'Waiting for the interviewer'}</strong>
-      <p>{canManage ? 'Add the problem, sample test and hidden validation test. The candidate cannot see it until you reveal it.' : 'The coding problem will appear here instantly when the interviewer reveals it.'}</p>
+      <p>{canManage ? 'Select one joined participant as candidate, then open the round. Only that candidate receives coding access.' : roundReady && !isSelectedCandidate ? 'The host selected another participant as the candidate. You can remain in the meeting as an observer or ask the host to promote you.' : roundReady ? 'Turn on camera and microphone, then click Start coding and share your screen. The problem appears when the timer begins.' : 'The coding problem will appear after a host selects you and opens the coding round.'}</p>
+      {isSelectedCandidate && roundReady && !startedAt && <button onClick={startCoding}>Start coding</button>}
       {canManage && <button onClick={() => setCreateOpen(true)}>Add first problem</button>}
     </div> : <div className="workspace-grid interview-grid">
       <aside className="problem-list interview-nav">
@@ -174,9 +218,9 @@ export function TechnicalWorkspace({ meetingCode, canManage, socket, problemVisi
       <section className="editor-panel interview-editor">
         <div className="editor-toolbar">
           <div><span className="editor-file-dot" />solution.{language === 'javascript' ? 'js' : language === 'python' ? 'py' : 'cpp'}</div>
-          <select aria-label="Programming language" value={language} onChange={event => { setLanguage(event.target.value); setCode(template[event.target.value] ?? ''); setExecution(null); }}>{problem?.allowedLanguages.map(item => <option key={item}>{item}</option>)}</select>
+          <select aria-label="Programming language" value={language} onChange={event => { setDraftReady(false); setLanguage(event.target.value); setCode(template[event.target.value] ?? ''); setExecution(null); }}>{problem?.allowedLanguages.map(item => <option key={item}>{item}</option>)}</select>
         </div>
-        <div className="editor-host"><Editor height="100%" language={language === 'cpp' ? 'cpp' : language} value={code} theme="vs-dark" onChange={value => setCode(value ?? '')} options={{ minimap: { enabled: false }, automaticLayout: true, fontSize: 14, padding: { top: 14 }, scrollBeyondLastLine: false }} /></div>
+        <div className="editor-host"><Editor height="100%" language={language} value={code} theme="vs-dark" onChange={value => setCode(value ?? '')} options={{ readOnly: canManage || Boolean(socket && (!draftReady || !startedAt || !codingAccess || secondsLeft === 0)), domReadOnly: canManage || Boolean(socket && (!draftReady || !startedAt || !codingAccess || secondsLeft === 0)), readOnlyMessage: { value: secondsLeft === 0 ? 'The coding time limit has ended.' : !codingAccess && startedAt ? 'Restore camera, microphone and screen sharing to continue.' : 'Click Start coding to unlock the editor.' }, minimap: { enabled: false }, automaticLayout: true, fontSize: 14, padding: { top: 14 }, scrollBeyondLastLine: false }} /></div>
         {execution && <div className={`execution-result interview-results ${execution.summary.passed === execution.summary.total ? 'all-passed' : ''}`}>
           <div className="result-summary"><strong>{execution.summary.passed === execution.summary.total ? '✓' : '!'} {execution.summary.passed}/{execution.summary.total} tests passed</strong><button aria-label="Close test results" onClick={() => setExecution(null)}>×</button></div>
           {execution.feedback && <p>{execution.feedback}</p>}
@@ -186,9 +230,8 @@ export function TechnicalWorkspace({ meetingCode, canManage, socket, problemVisi
           </div>)}
         </div>}
         <div className="run-panel interview-run-panel">
-          <span>{running ? 'Executing in secure container…' : secondsLeft === 0 ? 'Time limit reached' : 'Changes sync automatically'}</span>
-          <button className="secondary" disabled={running || secondsLeft === 0} onClick={() => execute('run')}>▷ Run samples</button>
-          <button disabled={running || secondsLeft === 0} onClick={() => execute('submit')}>{running ? 'Running…' : 'Submit solution'}</button>
+          <span>{canManage ? 'Read-only live candidate view' : !startedAt ? 'Click Start coding to unlock the editor' : !codingAccess ? 'Coding locked until required media is restored' : running ? 'Executing in secure container…' : secondsLeft === 0 ? 'Time limit reached' : liveStatus}</span>
+          {!canManage && <><button className="secondary" disabled={running || secondsLeft === 0 || !draftReady || !codingAccess} onClick={() => execute('run')}>▷ Run samples</button><button disabled={running || secondsLeft === 0 || !draftReady || !codingAccess} onClick={() => execute('submit')}>{running ? 'Running…' : 'Submit solution'}</button></>}
         </div>
       </section>
     </div>}

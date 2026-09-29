@@ -1,8 +1,6 @@
 import express from 'express';
-import helmet from 'helmet';
 import cors from 'cors';
 import cookieParser from 'cookie-parser';
-import { env } from './config/env.js';
 import { authRouter } from './routes/authRoutes.js';
 import { meetingRouter } from './routes/meetingRoutes.js';
 import { problemRouter } from './routes/problemRoutes.js';
@@ -10,10 +8,7 @@ import { fileRouter } from './routes/fileRoutes.js';
 import { errorHandler, notFound } from './middleware/errorHandler.js';
 
 export const app = express();
-app.set('trust proxy', 1);
-app.use(helmet());
-const localOrigins = new Set([env.clientOrigin, 'http://localhost:5173', 'http://127.0.0.1:5173']);
-app.use(cors({ origin: (origin, callback) => callback(null, !origin || localOrigins.has(origin)), credentials: true }));
+app.use(cors({ origin: true, credentials: true }));
 app.use(express.json({ limit: '12mb' }));
 app.use(cookieParser());
 app.get('/api/v1/health', (_, res) => res.json({ status: 'ok' }));
