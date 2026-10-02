@@ -2,6 +2,7 @@ import { Meeting } from '../models/Meeting.js';
 import { MeetingMember } from '../models/MeetingMember.js';
 import { Problem } from '../models/Problem.js';
 import { CandidateDraft } from '../models/CandidateDraft.js';
+import { Submission } from '../models/Submission.js';
 import { ChatMessage } from '../models/ChatMessage.js';
 import { User } from '../models/User.js';
 import { env } from '../config/env.js';
@@ -15,6 +16,7 @@ export function registerSocketHandlers(io) {
   const raisedHands = new Map();
   const reconnectTimers = new Map();
   const hostAbsenceTimers = new Map();
+  const activeCodeLanguages = new Map();
   const fullHostPermissions = { microphone: true, camera: true, screenShare: true, whiteboard: ['VIEW', 'DRAW', 'EDIT', 'CLEAR', 'ADMIN'], chat: true, reactions: true, recording: true, files: true };
   const defaultParticipantPermissions = { microphone: true, camera: true, screenShare: false, whiteboard: ['VIEW'], chat: true, reactions: true, recording: false, files: false };
   const permissionsFor = (member) => ({
@@ -120,7 +122,7 @@ export function registerSocketHandlers(io) {
       if (!socket.data.room || typeof microphone !== 'boolean' || typeof camera !== 'boolean') return acknowledge({ ok: false, message: 'Invalid media state.' });
       socket.data.mediaState = { microphone: microphone && socket.data.permissions?.microphone !== false, camera: camera && socket.data.permissions?.camera !== false };
       io.to(socket.data.room).emit('participant:media-state', { socketId: socket.id, userId: socket.data.user.id, ...socket.data.mediaState });
-      if (socket.data.meetingType === 'technical_interview' && !isHost(socket.data.role)) { const meeting = await Meeting.findById(socket.data.meetingId); if (meeting?.technical?.candidateId?.toString() === socket.data.user.id) { const allowed = socket.data.mediaState.microphone && socket.data.mediaState.camera && socket.data.sharingScreen; if (meeting.technical.codingAccess !== allowed) { meeting.technical.codingAccess = allowed; await meeting.save(); io.to(socket.data.room).emit(allowed ? 'coding:resumed' : 'coding:locked', { candidateId: socket.data.user.id, reason: allowed ? undefined : 'Candidate camera, microphone and screen sharing must remain active.' }); } } }
+      if (socket.data.meetingType === 'technical_interview' && !isHost(socket.data.role)) { const meeting = await Meeting.findById(socket.data.meetingId); if (meeting?.technical?.candidateStartedAt && !meeting.technical.roundEndedAt && meeting.technical.candidateId?.toString() === socket.data.user.id) { const allowed = socket.data.mediaState.microphone && socket.data.mediaState.camera && socket.data.sharingScreen; if (meeting.technical.codingAccess !== allowed) { meeting.technical.codingAccess = allowed; await meeting.save(); io.to(socket.data.room).emit(allowed ? 'coding:resumed' : 'coding:locked', { candidateId: socket.data.user.id, reason: allowed ? undefined : 'Candidate camera, microphone and screen sharing must remain active.' }); } } }
       acknowledge({ ok: true });
     });
 
@@ -222,7 +224,7 @@ export function registerSocketHandlers(io) {
         if (!targetSocket || targetSocket.id === socket.id) throw new Error('Participant is unavailable.');
         const targetMember = await MeetingMember.findOne({ meetingId: socket.data.meetingId, userId: targetSocket.data.user.id });
         if (!targetMember || targetMember.membershipStatus !== 'approved' || targetMember.participantStatus !== 'JOINED') throw new Error('Only an admitted participant in the meeting can become host.');
-        const meeting = await Meeting.findById(socket.data.meetingId).lean(); if (meeting?.technical?.candidateStartedAt && meeting.technical?.candidateId?.toString() === targetSocket.data.user.id) throw new Error('The active candidate cannot be promoted while coding.');
+        const meeting = await Meeting.findById(socket.data.meetingId).lean(); if (meeting?.technical?.candidateStartedAt && !meeting.technical?.roundEndedAt && meeting.technical?.candidateId?.toString() === targetSocket.data.user.id) throw new Error('The active candidate cannot be promoted while coding.');
 
         await MeetingMember.updateOne(
           { meetingId: socket.data.meetingId, userId: targetSocket.data.user.id },
@@ -241,7 +243,7 @@ export function registerSocketHandlers(io) {
     handle('participant:remove-host', async ({ target }, acknowledge) => {
         if (!socket.data.room || socket.data.role !== 'host' || !socket.data.isPrimaryHost) throw new Error('Only the primary host can remove another host.');
         const targetSocket = findPeer(target); if (!targetSocket || targetSocket.data.role !== 'host' || targetSocket.data.isPrimaryHost) throw new Error('Additional host is unavailable.');
-        const meeting = await Meeting.findById(socket.data.meetingId).lean(); if (meeting?.type === 'technical_interview' && meeting.technical?.candidateStartedAt) throw new Error('Host roles cannot be removed during an active coding round.');
+        const meeting = await Meeting.findById(socket.data.meetingId).lean(); if (meeting?.type === 'technical_interview' && meeting.technical?.candidateStartedAt && !meeting.technical?.roundEndedAt) throw new Error('Host roles cannot be removed during an active coding round.');
         await MeetingMember.updateOne({ meetingId: socket.data.meetingId, userId: targetSocket.data.user.id }, { $set: { role: 'participant', permissions: defaultParticipantPermissions } });
         targetSocket.data.role = 'participant'; targetSocket.data.permissions = { ...defaultParticipantPermissions }; targetSocket.data.isPrimaryHost = false;
         targetSocket.emit('role:updated', { role: 'participant', permissions: targetSocket.data.permissions, isPrimaryHost: false, message: 'The primary host changed your role to participant.' });
@@ -265,7 +267,7 @@ export function registerSocketHandlers(io) {
     handle('screen-share:start', async (_, acknowledge) => {
         const technicalCandidate = socket.data.meetingType === 'technical_interview' && !isHost(socket.data.role);
         if (!socket.data.room || (!technicalCandidate && !socket.data.permissions?.screenShare)) throw new Error('Screen sharing is disabled by the host.');
-        if (socket.data.meetingType === 'technical_interview') { const meeting = await Meeting.findById(socket.data.meetingId).lean(); if (technicalCandidate && (!meeting?.technical?.ready || meeting.technical?.candidateId?.toString() !== socket.data.user.id)) throw new Error('Only the participant selected as candidate may share a screen.'); if (isHost(socket.data.role) && meeting?.technical?.candidateStartedAt) throw new Error('Screen sharing is reserved for the candidate during coding.'); }
+        if (socket.data.meetingType === 'technical_interview') { const meeting = await Meeting.findById(socket.data.meetingId).lean(); if (technicalCandidate && meeting?.technical?.roundEndedAt) throw new Error('The coding round has ended.'); if (technicalCandidate && (!meeting?.technical?.ready || meeting.technical?.candidateId?.toString() !== socket.data.user.id)) throw new Error('Only the participant selected as candidate may share a screen.'); if (isHost(socket.data.role) && meeting?.technical?.candidateStartedAt && !meeting.technical?.roundEndedAt) throw new Error('Screen sharing is reserved for the candidate during coding.'); }
         const mode = socket.data.meetingSettings?.screenShareMode ?? 'HOST_AND_COHOST';
         if (!technicalCandidate && mode === 'HOST_ONLY' && socket.data.role !== 'host') throw new Error('Only the host may share their screen.');
         if (!technicalCandidate && mode === 'HOST_AND_COHOST' && !['host', 'interviewer', 'presenter'].includes(socket.data.role)) throw new Error('Only the host, co-host, or presenter may share their screen.');
@@ -276,7 +278,7 @@ export function registerSocketHandlers(io) {
         if (!socket.data.room || !socket.data.screenShareRequested) throw new Error('Request screen sharing first.'); socket.data.screenShareRequested = false;
         const active = activeScreenShares.get(socket.data.meetingId) ?? new Set(); if ((socket.data.meetingType === 'technical_interview' || socket.data.meetingSettings?.oneScreenShareAtATime !== false) && active.size && !active.has(socket.id)) throw new Error('Another participant is currently sharing.');
         active.add(socket.id); activeScreenShares.set(socket.data.meetingId, active); socket.data.sharingScreen = true; io.to(socket.data.room).emit('screen-share:status', { socketId: socket.id, user: socket.data.user, active: true });
-        const meeting = await Meeting.findById(socket.data.meetingId); if (meeting?.type === 'technical_interview' && meeting.technical?.candidateId?.toString() === socket.data.user.id && socket.data.mediaState?.camera && socket.data.mediaState?.microphone) { meeting.technical.codingAccess = true; await meeting.save(); io.to(socket.data.room).emit('coding:resumed', { candidateId: socket.data.user.id }); }
+        const meeting = await Meeting.findById(socket.data.meetingId); if (meeting?.type === 'technical_interview' && meeting.technical?.candidateStartedAt && !meeting.technical?.roundEndedAt && meeting.technical?.candidateId?.toString() === socket.data.user.id && socket.data.mediaState?.camera && socket.data.mediaState?.microphone) { meeting.technical.codingAccess = true; await meeting.save(); io.to(socket.data.room).emit('coding:resumed', { candidateId: socket.data.user.id }); }
         acknowledge({ ok: true });
     });
     socket.on('screen-share:stop', () => stopScreenShare(socket));
@@ -302,24 +304,34 @@ export function registerSocketHandlers(io) {
       if (!targetId) throw new Error('Select a candidate to view their draft.');
       const candidate = await MeetingMember.findOne({ meetingId, userId: targetId, membershipStatus: 'approved', role: { $nin: ['host', 'interviewer'] } }).populate('userId', 'name').lean();
       if (!candidate) throw new Error('Candidate is unavailable.');
-      const codeRoom = `code:${meetingId}:${problemId}:${language}:${targetId}`;
+      const submission = await Submission.findOne({ meetingId, problemId, candidateId: targetId, action: 'submit' }).sort({ createdAt: -1 }).lean();
+      const key = `${meetingId}:${problemId}:${targetId}`;
+      const latestDraft = isHost(member.role) && !submission ? await CandidateDraft.findOne({ meetingId, problemId, candidateId: targetId }).sort({ updatedAt: -1 }).lean() : null;
+      const finalLanguage = submission?.language ?? (isHost(member.role) ? activeCodeLanguages.get(key) ?? latestDraft?.language : language) ?? language;
+      const codeRoom = `code:${meetingId}:${problemId}:${finalLanguage}:${targetId}`;
       for (const room of socket.rooms) if (room.startsWith(`code:${meetingId}:`)) socket.leave(room);
       socket.join(codeRoom);
-      socket.data.codeSession = { meetingId, problemId: String(problemId), language, candidateId: String(targetId), room: codeRoom };
-      const draft = await CandidateDraft.findOne({ meetingId, problemId, candidateId: targetId, language }).lean();
-      acknowledge({ ok: true, found: Boolean(draft), sourceCode: draft?.sourceCode ?? '', candidate: { id: String(targetId), name: candidate.userId?.name ?? 'Candidate' } });
+      socket.data.codeSession = { meetingId, problemId: String(problemId), language: finalLanguage, candidateId: String(targetId), room: codeRoom };
+      const draft = submission ? null : await CandidateDraft.findOne({ meetingId, problemId, candidateId: targetId, language: finalLanguage }).lean();
+      acknowledge({ ok: true, found: Boolean(submission || draft), sourceCode: submission?.sourceCode ?? draft?.sourceCode ?? '', language: finalLanguage, submitted: Boolean(submission), summary: submission?.testSummary, candidate: { id: String(targetId), name: candidate.userId?.name ?? 'Candidate' } });
+      if (!isHost(member.role) && !submission) {
+        activeCodeLanguages.set(key, language);
+        (await getSockets(`meeting:${meetingId}`)).filter(peer => isHost(peer.data.role)).forEach(peer => peer.emit('code:language', { candidateId: String(targetId), problemId: String(problemId), language }));
+      }
     });
 
     handle('code:update', async ({ problemId, language, sourceCode }, acknowledge) => {
       const session = socket.data.codeSession;
       if (!session || isHost(socket.data.role) || session.candidateId !== socket.data.user.id || session.problemId !== String(problemId) || session.language !== language || typeof sourceCode !== 'string' || sourceCode.length > 100000) throw new Error('Only the selected candidate can edit this draft.');
       const meeting = await Meeting.findById(session.meetingId).select('technical status').lean();
+      if (meeting?.technical?.roundEndedAt) throw new Error('The coding round has ended.');
+      if (await Submission.exists({ meetingId: session.meetingId, problemId, candidateId: session.candidateId, action: 'submit' })) throw new Error('This solution was submitted and is read-only.');
       if (!meeting?.technical?.candidateStartedAt) throw new Error('Click Start coding before editing the solution.');
       if (!meeting.technical.codingAccess || meeting.technical.candidateId?.toString() !== socket.data.user.id) throw new Error('Camera, microphone and screen sharing must remain active while coding.');
       const endsAt = new Date(meeting.technical.candidateStartedAt).getTime() + (meeting.technical.durationSec ?? 0) * 1000;
       if (!['LIVE', 'PAUSED'].includes(meeting.status) || Date.now() >= endsAt) throw new Error('The coding time limit has ended.');
       await CandidateDraft.findOneAndUpdate({ meetingId: session.meetingId, problemId, candidateId: session.candidateId, language }, { $set: { sourceCode } }, { upsert: true, new: true, setDefaultsOnInsert: true });
-      socket.to(session.room).emit('code:update', { problemId, language, candidateId: session.candidateId, sourceCode, user: socket.data.user });
+      (await getSockets(socket.data.room)).filter(peer => isHost(peer.data.role)).forEach(peer => peer.emit('code:update', { problemId: String(problemId), language, candidateId: session.candidateId, sourceCode, user: socket.data.user }));
       acknowledge({ ok: true });
     });
 
@@ -365,6 +377,6 @@ export function registerSocketHandlers(io) {
   async function stopScreenShare(socket) {
     const active = socket.data.meetingId ? activeScreenShares.get(socket.data.meetingId) : null; socket.data.screenShareRequested = false; socket.data.sharingScreen = false; if (!active?.has(socket.id)) return;
     active.delete(socket.id); if (!active.size) activeScreenShares.delete(socket.data.meetingId); if (socket.data.room) io.to(socket.data.room).emit('screen-share:status', { socketId: socket.id, user: socket.data.user, active: false });
-    const meeting = await Meeting.findById(socket.data.meetingId); if (meeting?.type === 'technical_interview' && meeting.technical?.candidateId?.toString() === socket.data.user.id && meeting.technical.codingAccess) { meeting.technical.codingAccess = false; await meeting.save(); if (socket.data.room) io.to(socket.data.room).emit('coding:locked', { candidateId: socket.data.user.id, reason: 'Candidate screen sharing stopped. Coding is locked until sharing resumes.' }); }
+    const meeting = await Meeting.findById(socket.data.meetingId); if (meeting?.type === 'technical_interview' && meeting.technical?.candidateId?.toString() === socket.data.user.id && !meeting.technical.roundEndedAt && meeting.technical.candidateStartedAt) { const expired = Date.now() >= new Date(meeting.technical.candidateStartedAt).getTime() + (meeting.technical.durationSec ?? 0) * 1000; meeting.technical.codingAccess = false; if (expired) meeting.technical.roundEndedAt = new Date(); await meeting.save(); if (socket.data.room) io.to(socket.data.room).emit(expired ? 'coding:ended' : 'coding:locked', { candidateId: socket.data.user.id, reason: expired ? 'time_expired' : 'Candidate screen sharing stopped. Coding is locked until sharing resumes.', endedAt: meeting.technical.roundEndedAt }); }
   }
 }

@@ -2,6 +2,7 @@ import crypto from 'node:crypto';
 import { z } from 'zod';
 import { Meeting } from '../models/Meeting.js';
 import { MeetingMember } from '../models/MeetingMember.js';
+import { Problem } from '../models/Problem.js';
 import { JoinRequest } from '../models/JoinRequest.js';
 import { isTerminalMeetingStatus, refreshDueMeetingLifecycles, refreshMeetingLifecycle } from '../services/meetingLifecycleService.js';
 import { signMeetingInvite, verifyMeetingInvite } from '../utils/tokens.js';
@@ -165,6 +166,6 @@ export const startCoding = asyncHandler(async (req, res) => {
   if (!candidate) return res.status(409).json({ message: 'The selected candidate must be connected.' });
   if (!candidate.data.mediaState?.camera || !candidate.data.mediaState?.microphone) return res.status(409).json({ message: 'Turn on your camera and microphone before starting.' });
   if (!candidate.data.sharingScreen) return res.status(409).json({ message: 'Share your screen before starting.' });
-  if (!meeting.technical.candidateStartedAt) { Object.assign(meeting.technical, { candidateId: req.user._id, candidateStartedAt: new Date(), problemVisible: true, codingAccess: true }); await meeting.save(); req.app.get('io')?.to(room).emit('problem:revealed', { meetingCode: meeting.meetingCode }); req.app.get('io')?.to(room).emit('coding:started', { candidateId: req.user._id, startedAt: meeting.technical.candidateStartedAt, durationSec: meeting.technical.durationSec }); }
+  if (!meeting.technical.candidateStartedAt) { const problems = await Problem.find({ meetingId: meeting._id }).select('timeLimitSec').lean(); const durationSec = problems.reduce((total, problem) => total + problem.timeLimitSec, 0); Object.assign(meeting.technical, { candidateId: req.user._id, candidateStartedAt: new Date(), durationSec, problemVisible: true, codingAccess: true }); await meeting.save(); req.app.get('io')?.to(room).emit('problem:revealed', { meetingCode: meeting.meetingCode }); req.app.get('io')?.to(room).emit('coding:started', { candidateId: req.user._id, startedAt: meeting.technical.candidateStartedAt, durationSec: meeting.technical.durationSec }); }
   res.json({ startedAt: meeting.technical.candidateStartedAt, durationSec: meeting.technical.durationSec });
 });

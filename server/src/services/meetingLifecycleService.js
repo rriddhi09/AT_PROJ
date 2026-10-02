@@ -22,6 +22,16 @@ export async function refreshDueMeetingLifecycles() {
   await Promise.all(candidates.map(refreshMeetingLifecycle));
 }
 
+export async function expireCodingRounds(io) {
+  const active = await Meeting.find({ deletedAt: null, type: 'technical_interview', status: { $in: ['LIVE', 'PAUSED'] }, 'technical.candidateStartedAt': { $ne: null }, 'technical.roundEndedAt': null }).select('technical');
+  const now = Date.now();
+  await Promise.all(active.filter(meeting => now >= new Date(meeting.technical.candidateStartedAt).getTime() + (meeting.technical.durationSec ?? 0) * 1000).map(async meeting => {
+    const endedAt = new Date();
+    const ended = await Meeting.findOneAndUpdate({ _id: meeting._id, 'technical.roundEndedAt': null }, { $set: { 'technical.roundEndedAt': endedAt, 'technical.codingAccess': false } });
+    if (ended) io?.to(`meeting:${meeting._id}`).emit('coding:ended', { candidateId: String(meeting.technical.candidateId), reason: 'time_expired', endedAt });
+  }));
+}
+
 export async function beginStartupHostRecoveryWindow() { await Meeting.updateMany({ deletedAt: null, status: { $in: ['LIVE', 'PAUSED'] }, hostAbsentSince: null }, { $set: { hostAbsentSince: new Date() } }); }
 
 export function isTerminalMeetingStatus(status) { return ['ENDED', 'CANCELLED', 'EXPIRED', 'ended'].includes(status); }

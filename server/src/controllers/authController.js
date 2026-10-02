@@ -11,7 +11,7 @@ const publicUser = (user) => ({ id: user._id, name: user.name, email: user.email
 function issueSession(res, user) {
   const refreshToken = signRefreshToken(user);
   res.cookie('refreshToken', refreshToken, refreshCookieOptions());
-  return { accessToken: signAccessToken(user), user: publicUser(user) };
+  return { accessToken: signAccessToken(user), refreshToken, user: publicUser(user) };
 }
 
 export const register = asyncHandler(async (req, res) => {
@@ -28,12 +28,12 @@ export const login = asyncHandler(async (req, res) => {
 });
 
 export async function refresh(req, res, next) { try {
-  const token = req.cookies.refreshToken;
+  const token = z.object({ refreshToken: z.string().optional() }).parse(req.body ?? {}).refreshToken ?? req.cookies.refreshToken;
   if (!token) return res.status(401).json({ message: 'Refresh token missing.' });
   const payload = verifyRefreshToken(token);
   const user = await User.findOne({ _id: payload.sub, deletedAt: null });
   if (!user) return res.status(401).json({ message: 'Account unavailable.' });
-  res.json({ accessToken: signAccessToken(user), user: publicUser(user) });
+  res.json(issueSession(res, user));
 } catch (error) { res.clearCookie('refreshToken', clearRefreshCookieOptions()); next(error); } }
 
 export function logout(req, res) { res.clearCookie('refreshToken', clearRefreshCookieOptions()).status(204).end(); }

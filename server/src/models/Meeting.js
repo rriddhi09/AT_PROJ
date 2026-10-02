@@ -33,7 +33,8 @@ const meetingSchema = new mongoose.Schema({
     codingAccess: { type: Boolean, default: false },
     candidateId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
     durationSec: { type: Number, min: 60, max: 14400 },
-    candidateStartedAt: Date
+    candidateStartedAt: Date,
+    roundEndedAt: Date
   },
   deletedAt: { type: Date, default: null }
 }, { timestamps: true });
