@@ -10,5 +10,6 @@ export const env = {
   refreshSecret: process.env.JWT_REFRESH_SECRET ?? 'development-only-refresh-secret-change-me',
   accessTtl: process.env.JWT_ACCESS_TTL ?? '15m',
   refreshTtlDays: Number(process.env.JWT_REFRESH_TTL_DAYS ?? 7),
+  googleClientId: process.env.GOOGLE_CLIENT_ID ?? '',
   codeExecutionUrl: process.env.CODE_EXECUTION_URL ?? 'http://127.0.0.1:2000/api/v2/execute'
 };

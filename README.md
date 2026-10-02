@@ -12,6 +12,14 @@ MERN application for normal meetings and technical interviews. It includes JWT s
 
 The client runs at `http://localhost:5173`; API requests use `http://localhost:5000/api/v1` by default.
 
+## Optional Google sign-in
+
+1. In Google Cloud Console, create a Web application OAuth client ID and configure its consent screen. Add `http://localhost:5173` as an authorized JavaScript origin. If you open the app at `http://127.0.0.1:5173`, add that origin too.
+2. Put the same client ID (not the client secret) in `server/.env` as `GOOGLE_CLIENT_ID` and in `client/.env` as `VITE_GOOGLE_CLIENT_ID`. See the `.env.example` files.
+3. Restart the app. The Google button will appear on both sign-in and registration. Existing email/password users should first sign in normally, then link Google in Profile using the same email address.
+
+Google sign-in does not require Firebase Authentication or a paid Identity Platform account. Email/password sign-in continues to work without Google configuration.
+
 ## Local code execution
 
 Piston runs at `http://localhost:2000`. Install the interview languages once after the container starts:

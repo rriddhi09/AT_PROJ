@@ -16,7 +16,8 @@ import { SharedFile } from '../src/models/SharedFile.js';
 import { ChatMessage } from '../src/models/ChatMessage.js';
 import { expireCodingRounds, refreshMeetingLifecycle } from '../src/services/meetingLifecycleService.js';
 
-const baseUrl = 'http://127.0.0.1:5000/api/v1';
+const baseUrl = process.env.FLOW_TEST_BASE_URL ?? 'http://127.0.0.1:5000/api/v1';
+const socketUrl = new URL(baseUrl).origin;
 const sockets = [];
 const createdUserIds = [];
 const createdMeetingIds = [];
@@ -40,7 +41,7 @@ async function createUser(label, suffix) {
 function inviteFrom(joinPath) { return new URL(`http://local${joinPath}`).searchParams.get('invite'); }
 
 async function connectRoom(token, meetingCode, expectedOk = true) {
-  const socket = socketClient('http://127.0.0.1:5000', { auth: { token }, transports: ['websocket'], reconnection: false }); sockets.push(socket);
+  const socket = socketClient(socketUrl, { auth: { token }, transports: ['websocket'], reconnection: false }); sockets.push(socket);
   return await new Promise((resolve, reject) => { const timeout = setTimeout(() => reject(new Error(`Socket timeout for ${meetingCode}`)), 7000); socket.on('connect_error', error => { clearTimeout(timeout); reject(error); }); socket.on('connect', () => socket.emit('room:join', { meetingCode }, result => { clearTimeout(timeout); if (Boolean(result?.ok) !== expectedOk) reject(new Error(`Unexpected room result: ${JSON.stringify(result)}`)); else resolve({ socket, result }); })); });
 }
 function emitAck(socket, event, payload = {}) { return new Promise(resolve => socket.emit(event, payload, resolve)); }
@@ -65,11 +66,32 @@ async function cleanup() {
 }
 
 await mongoose.connect(env.mongoUri);
+await User.init();
 await Submission.init();
 const suffix = `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
 try {
   const registration = await fetch(`${baseUrl}/auth/register`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: 'Refresh Flow', email: `refresh-${suffix}@example.test`, password: 'SecurePass123!' }) }); const registered = await registration.json(); assert(registration.status === 201 && registered.accessToken && registered.refreshToken, 'Registration failed'); createdUserIds.push(new mongoose.Types.ObjectId(registered.user.id)); const cookie = registration.headers.get('set-cookie')?.split(';')[0]; assert(cookie, 'Refresh cookie was not issued'); const secondRegistration = await fetch(`${baseUrl}/auth/register`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: 'Other Tab', email: `other-tab-${suffix}@example.test`, password: 'SecurePass123!' }) }); const secondUser = await secondRegistration.json(); createdUserIds.push(new mongoose.Types.ObjectId(secondUser.user.id)); const secondCookie = secondRegistration.headers.get('set-cookie')?.split(';')[0]; const refreshed = await fetch(`${baseUrl}/auth/refresh`, { method: 'POST', headers: { 'Content-Type': 'application/json', Cookie: secondCookie }, body: JSON.stringify({ refreshToken: registered.refreshToken }) }); const refreshedSession = await refreshed.json(); assert(refreshed.status === 200 && refreshedSession.user.id === registered.user.id && refreshedSession.user.id !== secondUser.user.id, 'A shared cookie replaced the tab-specific user session'); const loggedOut = await fetch(`${baseUrl}/auth/logout`, { method: 'POST', headers: { Cookie: cookie } }); assert(loggedOut.status === 204 && /refreshToken=;/i.test(loggedOut.headers.get('set-cookie') ?? ''), 'Logout did not clear the session cookie'); pass('each browser tab restores its own user session after another account logs in');
   const host = await createUser('host', suffix); const participant = await createUser('participant', suffix); const candidate = await createUser('candidate', suffix); const extra = await createUser('extra', suffix);
+
+  const profileEmail = `profile-${suffix}@example.test`;
+  await api(secondUser.accessToken, '/auth/profile', { method: 'PATCH', body: { name: 'Updated Tester', email: registered.user.email }, expected: [409] });
+  await api(secondUser.accessToken, '/auth/profile', { method: 'PATCH', body: { name: 'Updated Tester', email: profileEmail, currentPassword: 'wrong-password', newPassword: 'NewSecurePass123!' }, expected: [400] });
+  const profile = (await api(secondUser.accessToken, '/auth/profile', { method: 'PATCH', body: { name: 'Updated Tester', email: profileEmail, currentPassword: 'SecurePass123!', newPassword: 'NewSecurePass123!' } })).data;
+  assert(profile.user.name === 'Updated Tester' && profile.user.email === profileEmail, 'Profile changes were not returned');
+  const refreshedProfile = (await api(profile.accessToken, '/auth/refresh', { method: 'POST', body: { refreshToken: profile.refreshToken } })).data;
+  assert(refreshedProfile.user.name === 'Updated Tester' && refreshedProfile.user.email === profileEmail, 'Profile changes were not restored after refresh');
+  const relogin = (await api(null, '/auth/login', { method: 'POST', body: { email: profileEmail, password: 'NewSecurePass123!' } })).data;
+  assert(relogin.user.id === secondUser.user.id, 'Changed password did not work at sign-in');
+  pass('profile updates persist, reject duplicate email and wrong password, and survive refresh');
+  const googleOnly = await User.create({ name: 'Google Flow', email: `google-${suffix}@example.test`, googleSub: `flow-google-${suffix}` });
+  createdUserIds.push(googleOnly._id);
+  await api(null, '/auth/login', { method: 'POST', body: { email: googleOnly.email, password: 'NoPassword123!' }, expected: [401] });
+  const googleOnlyProfile = (await api(signAccessToken(googleOnly), '/auth/profile', { method: 'PATCH', body: { name: googleOnly.name, email: googleOnly.email, newPassword: 'AddedPassword123!' } })).data;
+  assert(googleOnlyProfile.user.googleConnected && googleOnlyProfile.user.hasPassword, 'Google-only account could not add email/password sign-in');
+  const googleOnlyLogin = (await api(null, '/auth/login', { method: 'POST', body: { email: googleOnly.email, password: 'AddedPassword123!' } })).data;
+  assert(googleOnlyLogin.user.googleConnected, 'Google connection was lost after email/password sign-in');
+  await api(null, '/auth/google', { method: 'POST', body: { credential: 'invalid-google-token' }, expected: [env.googleClientId ? 401 : 503] });
+  pass('Google-only accounts can add a password, and invalid Google tokens are rejected');
 
   const past = await api(host.token, '/meetings', { method: 'POST', body: { title: 'Past meeting', description: '', type: 'normal', accessType: 'private', scheduledAt: new Date(Date.now() - 60000).toISOString() }, expected: [400] });
   assert(/future/i.test(past.data.message), 'Past schedule was not rejected'); pass('past schedules are rejected');
@@ -177,8 +199,8 @@ try {
   assert(secondRun.summary.passed === 2, 'Candidate could not run the remaining problem');
   const screenStopped = new Promise(resolve => { const listener = event => { if (!event.active && event.socketId === interviewCandidate.socket.id) { interviewHost.socket.off('screen-share:status', listener); resolve(event); } }; interviewHost.socket.on('screen-share:status', listener); });
   const roundEnded = new Promise(resolve => interviewCandidate.socket.once('coding:ended', event => { interviewCandidate.socket.emit('screen-share:stop'); resolve(event); }));
-  const finalAttempts = await Promise.all([1, 2].map(() => api(participant.token, `/interviews/${interviewCode}/problems/${secondProblem.id}/execute`, { method: 'POST', body: { language: 'cpp', sourceCode: echoCode, action: 'submit' }, expected: [200, 409] })));
-  assert(finalAttempts.filter(result => result.status === 200).length === 1 && finalAttempts.filter(result => result.status === 409).length === 1 && finalAttempts.find(result => result.status === 200).data.roundEnded, 'Concurrent final submissions were not deduplicated');
+  const finalAttempts = await Promise.all([1, 2].map(() => api(participant.token, `/interviews/${interviewCode}/problems/${secondProblem.id}/execute`, { method: 'POST', body: { language: 'cpp', sourceCode: echoCode, action: 'submit' }, expected: [200, 409, 410] })));
+  assert(finalAttempts.filter(result => result.status === 200).length === 1 && finalAttempts.filter(result => [409, 410].includes(result.status)).length === 1 && finalAttempts.find(result => result.status === 200).data.roundEnded, 'Concurrent final submissions were not deduplicated');
   assert((await roundEnded).reason === 'submitted', 'Candidate was not notified that all problems were submitted');
   await screenStopped;
   const endedRound = await Meeting.findById(interview.meeting._id).lean();
