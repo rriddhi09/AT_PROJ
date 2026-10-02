@@ -30,8 +30,9 @@ docker exec unified-interview-piston cli/index.js ppman install javascript pytho
 
 ## Production checklist
 
-- Set distinct, high-entropy JWT secrets and `NODE_ENV=production`.
-- Use HTTPS for the client/API and set `COOKIE_SECURE=true` with the exact `CLIENT_ORIGIN`.
+- Set `NODE_ENV=production`, `MONGODB_URI`, the exact HTTPS `CLIENT_ORIGIN`, and three distinct random `JWT_*_SECRET` values of at least 32 characters. The API refuses to start without them.
+- Set `COOKIE_SECURE=true`. Production refresh cookies use `Secure; SameSite=None` so a separately hosted frontend can send them over HTTPS. Use a same-site custom domain when possible, because browsers may block third-party cookies.
+- On Vercel, set the project root to `client` and set `VITE_API_URL=https://<backend>/api/v1` and `VITE_SOCKET_URL=https://<backend>` before building. Keep JWT secrets and `MONGODB_URI` only on the backend host, never in Vercel's frontend environment.
 - Run MongoDB with backups and a replica set when `MONGODB_USE_TRANSACTIONS=true` is desired.
 - Configure a TURN server through the `VITE_TURN_*` values; STUN alone is not reliable across all networks.
 - Keep Piston on an internal network and never expose port 2000 publicly.

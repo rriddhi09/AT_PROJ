@@ -11,5 +11,8 @@
     "test:flows": "npm run test:flows --workspace server",
     "start": "npm run start --workspace server"
   },
+  "overrides": {
+    "dompurify": "3.4.16"
+  },
   "devDependencies": { "concurrently": "^9.1.2" }
 }
